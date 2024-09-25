@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Viewer with Toggle</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <style>
+    #text-container, #image-container {
+      width: 100%;
+      height: 80vh;
+      overflow-y: auto; /* Ensure scrolling */
+      scroll-behavior: smooth;
+      position: relative;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .text-page, .image-page {
+      margin-bottom: 30px;
+      padding: 10px;
+    }
+    .text-page:last-child, .image-page:last-child {
+      margin-bottom: 0;
+    }
+    .control-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .toggle-button {
+      background-color: #1a202c;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="bg-gray-100">
+
+  <div class="flex">
+    <!-- Sidebar -->
+    <div class="w-1/4 bg-gray-900 h-screen p-6">
+      <h2 class="text-white text-2xl font-bold mb-6">Controls</h2>
+      
+      <!-- PDF Upload Button -->
+      <div class="mb-6">
+        <input type="file" id="pdf-upload" accept="application/pdf" class="block w-full text-white bg-gray-700 px-4 py-2 rounded hover:bg-gray-600">
+      </div>
+
+      <!-- Toggle Button -->
+      <button id="toggle-btn" class="mb-6 toggle-button">Switch to Image Mode</button>
+
+      <!-- Control Buttons -->
+      <div class="control-buttons">
+        <button id="play-btn" class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Play</button>
+        <button id="pause-btn" class="w-full bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Pause</button>
+        <button id="stop-btn" class="w-full bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Stop</button>
+        <button id="faster-btn" class="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Faster</button>
+        <button id="slower-btn" class="w-full bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Slower</button>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="w-3/4 p-6">
+      <h1 class="text-3xl font-bold text-gray-900 mb-6 text-center">PDF Viewer</h1>
+
+      <!-- Mode Containers -->
+      <div id="text-container" class="bg-white shadow-lg rounded-lg hidden">
+        <!-- Extracted text will be rendered here -->
+      </div>
+      <div id="image-container" class="bg-white shadow-lg rounded-lg hidden">
+        <!-- PDF pages as images will be rendered here -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const textContainer = document.getElementById('text-container');
+    const imageContainer = document.getElementById('image-container');
+    const toggleButton = document.getElementById('toggle-btn');
+    let scrollInterval;
+    let scrollSpeed = 2; // Scroll speed in pixels per tick
+    let pdfDoc = null;
+    let isTextMode = true; // Start in text mode
+    let pdfData = null; // To hold the PDF data
+    let currentPage = 1; // Track the current page
+    let scrollTopText = 0; // Track scroll position in text mode
+    let scrollTopImage = 0; // Track scroll position in image mode
+
+    // Handle PDF Upload
+    document.getElementById('pdf-upload').addEventListener('change', function(event) {
+      const file = event.target.files[0];
+      if (file && file.type === 'application/pdf') {
+        const fileReader = new FileReader();
+        fileReader.onload = function() {
+          pdfData = new Uint8Array(this.result);
+          loadPDF();
+        };
+        fileReader.readAsArrayBuffer(file);
+      }
+    });
+
+    // Load and extract text or render images from PDF
+    function loadPDF() {
+      if (!pdfData) return;
+
+      pdfjsLib.getDocument({data: pdfData}).promise.then(pdf => {
+        pdfDoc = pdf;
+        if (isTextMode) {
+          extractAllText();
+        } else {
+          renderAllImages();
+        }
+      });
+    }
+
+    // Extract text from all pages
+    function extractAllText() {
+      textContainer.innerHTML = ''; // Clear previous content
+      const promises = [];
+      for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
+        promises.push(extractTextFromPage(pageNumber));
+      }
+      Promise.all(promises).then(pagesText => {
+        pagesText.forEach((pageText, index) => {
+          const pageDiv = document.createElement('div');
+          pageDiv.classList.add('text-page');
+          pageDiv.textContent = pageText;
+          textContainer.appendChild(pageDiv);
+        });
+        // Scroll to the previously saved position
+        textContainer.scrollTop = scrollTopText;
+        textContainer.classList.remove('hidden');
+        imageContainer.classList.add('hidden');
+      });
+    }
+
+    // Extract text from a single page
+    function extractTextFromPage(pageNumber) {
+      return pdfDoc.getPage(pageNumber).then(page => {
+        return page.getTextContent().then(textContent => {
+          return textContent.items.map(item => item.str).join(' ');
+        });
+      });
+    }
+
+    // Render all pages as images
+    function renderAllImages() {
+      imageContainer.innerHTML = ''; // Clear previous content
+      const promises = [];
+      for (let pageNumber = 1; pageNumber <= pdfDoc.numPages; pageNumber++) {
+        promises.push(renderPageAsImage(pageNumber));
+      }
+      Promise.all(promises).then(pagesImages => {
+        pagesImages.forEach(imgSrc => {
+          const img = document.createElement('img');
+          img.classList.add('image-page');
+          img.src = imgSrc;
+          imageContainer.appendChild(img);
+        });
+        // Scroll to the previously saved position
+        imageContainer.scrollTop = scrollTopImage;
+        textContainer.classList.add('hidden');
+        imageContainer.classList.remove('hidden');
+      });
+    }
+
+    // Render a single page as an image
+    function renderPageAsImage(pageNumber) {
+      return pdfDoc.getPage(pageNumber).then(page => {
+        const viewport = page.getViewport({ scale: 1 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        return page.render({ canvasContext: context, viewport: viewport }).promise.then(() => {
+          return canvas.toDataURL();
+        });
+      });
+    }
+
+    function startScrolling(container) {
+      scrollInterval = setInterval(() => {
+        container.scrollTop += scrollSpeed;
+      }, 50); // 50ms interval
+    }
+
+    function stopScrolling() {
+      clearInterval(scrollInterval);
+    }
+
+    // Event listeners for scrolling control
+    document.getElementById('play-btn').addEventListener('click', () => {
+      stopScrolling(); // Stop any existing scroll
+      if (isTextMode) {
+        startScrolling(textContainer); // Start scrolling for text mode
+      } else {
+        startScrolling(imageContainer); // Start scrolling for image mode
+      }
+    });
+
+    document.getElementById('pause-btn').addEventListener('click', () => {
+      stopScrolling(); // Pause the scroll
+    });
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+      stopScrolling(); // Stop the scroll
+      if (isTextMode) {
+        scrollTopText = textContainer.scrollTop; // Save scroll position
+        textContainer.scrollTop = 0; // Reset scroll to top for text mode
+      } else {
+        scrollTopImage = imageContainer.scrollTop; // Save scroll position
+        imageContainer.scrollTop = 0; // Reset scroll to top for image mode
+      }
+    });
+
+    document.getElementById('faster-btn').addEventListener('click', () => {
+      scrollSpeed += 1; // Increase speed
+    });
+
+    document.getElementById('slower-btn').addEventListener('click', () => {
+      if (scrollSpeed > 1) scrollSpeed -= 1; // Decrease speed, but not below 1
+    });
+
+    // Toggle between text and image modes
+    toggleButton.addEventListener('click', () => {
+      isTextMode = !isTextMode;
+      toggleButton.textContent = isTextMode ? 'Switch to Image Mode' : 'Switch to Text Mode';
+      if (isTextMode) {
+        // Save scroll position before switching to text mode
+        if (imageContainer.classList.contains('hidden')) {
+          scrollTopImage = imageContainer.scrollTop; // Save image scroll position
+        }
+        extractAllText(); // Load text mode
+      } else {
+        // Save scroll position before switching to image mode
+        if (textContainer.classList.contains('hidden')) {
+          scrollTopText = textContainer.scrollTop; // Save text scroll position
+        }
+        renderAllImages(); // Load image mode
+      }
+    });
+  </script>
+</body>
+</html>
